@@ -6,15 +6,15 @@
  <<< -             vratit se a dekrementovat hodnotu bunky cislo 0
 )@
 >--.         tisk znaku "x"
->----.       tisk znaku "l"
-+++.         tisk znaku "o"
---------.    tisk znaku "g"
-++.          tisk znaku "i"
-+++++.       tisk znaku "n"
->--.         tisk znaku "0"
-.            tisk znaku "0"
+>-----.       tisk znaku "l"
+++++++++++.         tisk znaku "o"
+------------------.    tisk znaku "g"
++++++.          tisk znaku "i"
+-------.       tisk znaku "n"
+>.         tisk znaku "0"
+++++++.            tisk znaku "0"
 
 
-Tento kod lze tak jak jej vidite tj vcetne komentaru odsmimulovat 
+Tento kod lze tak jak jej vidite tj vcetne komentaru odsmimulovat
 pomoci debuggeru na adrese http://www TECKA fit TECKA vutbr TECKA cz/ VLNOVKA vasicek/inp22/
 

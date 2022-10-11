@@ -39,6 +39,113 @@ end cpu;
 --                      Architecture declaration
 -- ----------------------------------------------------------------------------
 architecture behavioral of cpu is
+  type states is (S_RESET, S_READ, S_PROCESS);
+  signal current_state : states := S_RESET;
+  signal next_state : states := S_RESET;
+
+  -- ptr
+  signal ptr : std_logic_vector(11 downto 0);
+  signal ptr_inc : std_logic;
+  signal ptr_dec : std_logic;
+  -- pc
+  signal pc : std_logic_vector(11 downto 0);
+  signal pc_inc : std_logic;
+  signal pc_dec : std_logic;
+
+  signal mux_addr : std_logic;
+
+  signal mux_wdata : std_logic_vector(1 downto 0);
 begin
+
+  -- State switching logic
+  p_state_switch : process (CLK, RESET)
+  begin
+    if RESET = '1' then
+      current_state <= S_RESET;
+    elsif rising_edge(CLK) then
+      current_state <= next_state;
+    end if;
+  end process;
+
+  -- Get next state
+  p_state_decision : process (current_state)
+  begin
+    next_state <= current_state;
+    case current_state is
+      when S_RESET =>
+        next_state <= S_PROCESS;
+      when others => null;
+    end case;
+  end process;
+
+  -- Output
+  p_output : process (current_state)
+  begin
+    case current_state is
+      when S_RESET =>
+        DATA_EN <= '0';
+        IN_REQ <= '0';
+        OUT_WE <= '0';
+      when S_PROCESS =>
+        DATA_RDWR <= '1';
+        mux_wdata <= "10";
+        DATA_EN <= '1';
+      when others => null;
+    end case;
+  end process;
+
+  p_pc : process (CLK, RESET)
+  begin
+    if RESET = '1' then
+      pc <= x"000";
+    elsif rising_edge(CLK) then
+      if pc_inc = '1' then
+        pc <= pc + 1;
+      elsif pc_dec = '1' then
+        pc <= pc - 1;
+      end if;
+    end if;
+  end process;
+
+  p_ptr : process (CLK, RESET)
+  begin
+    if RESET = '1' then
+      ptr <= x"000";
+    elsif rising_edge(CLK) then
+      if ptr_inc = '1' then
+        ptr <= ptr + 1;
+      elsif ptr_dec = '1' then
+        ptr <= ptr - 1;
+      end if;
+    end if;
+  end process;
+
+  p_mux_addr : process (CLK, RESET)
+  begin
+    if RESET = '1' then
+    elsif rising_edge(CLK) then
+      if mux_addr = '0' then
+        DATA_ADDR <= "0" & pc;
+      else
+        DATA_ADDR <= "1" & ptr;
+      end if;
+    end if;
+  end process;
+
+  p_mux_wdata : process (CLK, RESET)
+  begin
+    if RESET = '1' then
+    elsif rising_edge(CLK) then
+      case mux_wdata is
+        when "00" =>
+          DATA_WDATA <= IN_DATA;
+        when "01" =>
+          DATA_WDATA <= DATA_RDATA - 1;
+        when "10" =>
+          DATA_WDATA <= DATA_RDATA + 1;
+        when others => null;
+      end case;
+    end if;
+  end process;
 
 end behavioral;
