@@ -39,6 +39,7 @@ end cpu;
 --                      Architecture declaration
 -- ----------------------------------------------------------------------------
 architecture behavioral of cpu is
+  -- FSM
   type states is (
     S_RESET,
     S_FETCH,
@@ -46,27 +47,41 @@ architecture behavioral of cpu is
     S_INC,
     S_DEC,
     S_SKIP,
-    S_MOVE,
+    S_MOVE_RIGHT,
+    S_MOVE_LEFT,
     S_PRINT, S_PRINT_WAIT,
-    s_INPUT_REQ, S_INPUT_WAIT, S_INPUT,
+    S_INPUT_REQ, S_INPUT_WAIT, S_INPUT,
+    S_BRACKET_CHECK,
     S_HALT
   );
-
   signal current_state : states := S_FETCH;
   signal next_state : states := S_FETCH;
 
-  -- ptr
-  signal ptr : std_logic_vector(11 downto 0);
-  signal ptr_inc : std_logic;
-  signal ptr_dec : std_logic;
-  -- pc
+  -- Program counter
   signal pc : std_logic_vector(11 downto 0);
   signal pc_inc : std_logic;
   signal pc_dec : std_logic;
 
+  -- Data pointer
+  signal ptr : std_logic_vector(11 downto 0);
+  signal ptr_inc : std_logic;
+  signal ptr_dec : std_logic;
+
+  -- Memory address multiplexor
   signal mux_addr : std_logic;
 
+  -- Data write multiplexor
   signal mux_wdata : std_logic_vector(1 downto 0);
+
+  -- Bracket counter []
+  signal cnt_bracket : std_logic_vector(11 downto 0);
+  signal cnt_bracket_inc : std_logic;
+  signal cnt_bracket_dec : std_logic;
+
+  -- Parentheses counter ()
+  signal cnt_paren : std_logic_vector(11 downto 0);
+  signal cnt_paren_inc : std_logic;
+  signal cnt_paren_dec : std_logic;
 begin
 
   -- State switching logic
@@ -84,34 +99,38 @@ begin
   begin
     next_state <= current_state;
     if EN = '1' then
+      -- All states fall to fetch by default
+      next_state <= S_FETCH;
       case current_state is
-        when S_RESET =>
-          next_state <= S_FETCH;
         when S_FETCH =>
           next_state <= S_DECODE;
         when S_DECODE =>
           case DATA_RDATA is
-            when x"2B" => -- +
+            when x"2B" => -- '+'
               next_state <= S_INC;
-            when x"2D" => -- -
+            when x"2D" => -- '-'
               next_state <= S_DEC;
-            when x"3E" => -- >
-              next_state <= S_MOVE;
-            when x"2E" => -- .
+            when x"3E" => -- '>'
+              next_state <= S_MOVE_RIGHT;
+            when x"3C" => -- '<'
+              next_state <= S_MOVE_LEFT;
+            when x"2E" => -- '.'
               next_state <= S_PRINT_WAIT;
-            when x"2C" => -- ,
+            when x"2C" => -- ','
               next_state <= S_INPUT_REQ;
-            when x"00" => -- \0
+            when x"5B" => -- '['
+              next_state <= S_BRACKET_CHECK;
+            when x"5D" => -- ']'
+              null;
+            when x"28" => -- '('
+              null;
+            when x"29" => -- ')'
+              null;
+            when x"00" => -- '\0'
               next_state <= S_HALT;
-            when others =>
+            when others => -- Other characters (comments)
               next_state <= S_SKIP;
           end case;
-        when S_INC =>
-          next_state <= S_FETCH;
-        when S_DEC =>
-          next_state <= S_FETCH;
-        when S_MOVE =>
-          next_state <= S_FETCH;
         when S_PRINT_WAIT =>
           if OUT_BUSY = '0' then
             next_state <= S_PRINT;
@@ -122,12 +141,9 @@ begin
           if IN_VLD = '1' then
             next_state <= S_INPUT;
           end if;
-        when S_INPUT =>
-          next_state <= S_FETCH;
-        when S_PRINT =>
-          next_state <= S_FETCH;
-        when S_SKIP =>
-          next_state <= S_FETCH;
+        when S_BRACKET_CHECK =>
+          -- if DATA_RDATA = '0' then
+          null;
         when S_HALT =>
           next_state <= S_HALT;
         when others => null;
@@ -135,10 +151,11 @@ begin
     end if;
   end process;
 
-  -- Output
+  -- FSM output
   p_output : process (current_state)
   begin
     case current_state is
+        -- Initialize
       when S_RESET =>
         pc_inc <= '0';
         pc_dec <= '0';
@@ -148,6 +165,7 @@ begin
         IN_REQ <= '0';
         OUT_WE <= '0';
         MUX_ADDR <= '0';
+        -- Fetch instruction from memory
       when S_FETCH =>
         MUX_ADDR <= '0';
         DATA_RDWR <= '0';
@@ -157,39 +175,54 @@ begin
         pc_dec <= '0';
         ptr_inc <= '0';
         ptr_dec <= '0';
+        -- Decode current instruction
       when S_DECODE =>
         MUX_ADDR <= '1';
+        -- Increment instruction '+'
       when S_INC =>
         DATA_RDWR <= '1';
         DATA_EN <= '1';
         MUX_WDATA <= "10";
         pc_inc <= '1';
+        -- Decrement instrucition '-'
       when S_DEC =>
         DATA_RDWR <= '1';
         DATA_EN <= '1';
         MUX_WDATA <= "01";
         pc_inc <= '1';
-      when S_MOVE =>
+        -- Move right instruction '>'
+      when S_MOVE_RIGHT =>
         ptr_inc <= '1';
         pc_inc <= '1';
+        -- Move left instruction '<'
+      when S_MOVE_LEFT =>
+        ptr_dec <= '1';
+        pc_inc <= '1';
+        -- Print instruction '.'
       when S_PRINT =>
         OUT_DATA <= DATA_RDATA;
         OUT_WE <= '1';
         pc_inc <= '1';
+        -- Request input from keyboard
       when S_INPUT_REQ =>
         IN_REQ <= '1';
+        -- Input instruction ','
       when S_INPUT =>
         IN_REQ <= '0';
         DATA_RDWR <= '1';
         DATA_EN <= '1';
         MUX_WDATA <= "00";
         pc_inc <= '1';
+      when S_BRACKET_CHECK =>
+        pc_inc <= '1';
+        -- Other characters (comments)
       when S_SKIP =>
         pc_inc <= '1';
       when others => null;
     end case;
   end process;
 
+  -- Program counter
   p_pc : process (CLK, RESET)
   begin
     if RESET = '1' then
@@ -203,6 +236,7 @@ begin
     end if;
   end process;
 
+  -- Data pointer
   p_ptr : process (CLK, RESET)
   begin
     if RESET = '1' then
@@ -216,6 +250,9 @@ begin
     end if;
   end process;
 
+  -- Memory address multiplexor
+  -- 0 = Program counter
+  -- 1 = Data pointer
   p_mux_addr : process (CLK, RESET)
   begin
     if mux_addr = '0' then
@@ -225,6 +262,10 @@ begin
     end if;
   end process;
 
+  -- Data write multiplexor
+  -- 00 = Data from keyboard
+  -- 01 = Current cell value - 1
+  -- 10 = Current cell value + 1
   p_mux_wdata : process (CLK, RESET)
   begin
     case mux_wdata is
@@ -238,4 +279,31 @@ begin
     end case;
   end process;
 
+  -- Bracket counter []
+  p_cnt_bracket : process (CLK, RESET)
+  begin
+    if RESET = '1' then
+      cnt_bracket <= x"000";
+    elsif rising_edge(CLK) then
+      if cnt_bracket_inc = '1' then
+        cnt_bracket <= cnt_bracket + 1;
+      elsif cnt_bracket_dec = '1' then
+        cnt_bracket <= cnt_bracket - 1;
+      end if;
+    end if;
+  end process;
+
+  -- Parentheses counter ()
+  p_cnt_paren : process (CLK, RESET)
+  begin
+    if RESET = '1' then
+      cnt_paren <= x"000";
+    elsif rising_edge(CLK) then
+      if cnt_paren_inc = '1' then
+        cnt_paren <= cnt_paren + 1;
+      elsif cnt_paren_dec = '1' then
+        cnt_paren <= cnt_paren - 1;
+      end if;
+    end if;
+  end process;
 end behavioral;
