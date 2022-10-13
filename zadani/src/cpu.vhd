@@ -159,12 +159,16 @@ begin
         when S_PRINT_WAIT =>
           if OUT_BUSY = '0' then
             next_state <= S_PRINT;
+          else
+            next_state <= S_PRINT_WAIT;
           end if;
         when S_INPUT_REQ =>
           next_state <= S_INPUT_WAIT;
         when S_INPUT_WAIT =>
           if IN_VLD = '1' then
             next_state <= S_INPUT;
+          else
+            next_state <= S_INPUT_WAIT;
           end if;
         when S_LCHECK =>
           if DATA_RDATA = x"00" then
