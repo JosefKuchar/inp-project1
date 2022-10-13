@@ -54,8 +54,8 @@ architecture behavioral of cpu is
     S_LCHECK, S_RCHECK, S_LL, S_LR, S_RL, S_RR, S_RINIT,
     S_HALT
   );
-  signal current_state : states := S_FETCH;
-  signal next_state : states := S_FETCH;
+  signal current_state : states := S_RESET;
+  signal next_state : states := S_RESET;
 
   -- Program counter
   signal pc : std_logic_vector(11 downto 0);
@@ -348,7 +348,8 @@ begin
         DATA_WDATA <= DATA_RDATA - 1;
       when "10" =>
         DATA_WDATA <= DATA_RDATA + 1;
-      when others => null;
+      when others =>
+        DATA_WDATA <= x"00";
     end case;
   end process;
 
