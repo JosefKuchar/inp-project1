@@ -41,7 +41,7 @@ async def test_decrement(dut):
 async def test_move(dut):
     """Move the pointer to the next cell and increment its value"""
     instcnt, mem, _ = await run_program(dut, '>+')
-    assert instcnt == 5
+    assert instcnt == 2
     assert mem[RAM_OFS] == 0
     assert mem[RAM_OFS+1] == 1
 
