@@ -39,9 +39,21 @@ end cpu;
 --                      Architecture declaration
 -- ----------------------------------------------------------------------------
 architecture behavioral of cpu is
-  type states is (S_RESET, S_READ, S_PROCESS);
-  signal current_state : states := S_RESET;
-  signal next_state : states := S_RESET;
+  type states is (
+    S_RESET,
+    S_FETCH,
+    S_DECODE,
+    S_INC,
+    S_DEC,
+    S_SKIP,
+    S_MOVE,
+    S_PRINT, S_PRINT_WAIT,
+    s_INPUT_REQ, S_INPUT_WAIT, S_INPUT,
+    S_HALT
+  );
+
+  signal current_state : states := S_FETCH;
+  signal next_state : states := S_FETCH;
 
   -- ptr
   signal ptr : std_logic_vector(11 downto 0);
@@ -68,14 +80,59 @@ begin
   end process;
 
   -- Get next state
-  p_state_decision : process (current_state)
+  p_state_decision : process (current_state, EN, DATA_RDATA, OUT_BUSY, IN_VLD)
   begin
     next_state <= current_state;
-    case current_state is
-      when S_RESET =>
-        next_state <= S_PROCESS;
-      when others => null;
-    end case;
+    if EN = '1' then
+      case current_state is
+        when S_RESET =>
+          next_state <= S_FETCH;
+        when S_FETCH =>
+          next_state <= S_DECODE;
+        when S_DECODE =>
+          case DATA_RDATA is
+            when x"2B" => -- +
+              next_state <= S_INC;
+            when x"2D" => -- -
+              next_state <= S_DEC;
+            when x"3E" => -- >
+              next_state <= S_MOVE;
+            when x"2E" => -- .
+              next_state <= S_PRINT_WAIT;
+            when x"2C" => -- ,
+              next_state <= S_INPUT_REQ;
+            when x"00" => -- \0
+              next_state <= S_HALT;
+            when others =>
+              next_state <= S_SKIP;
+          end case;
+        when S_INC =>
+          next_state <= S_FETCH;
+        when S_DEC =>
+          next_state <= S_FETCH;
+        when S_MOVE =>
+          next_state <= S_FETCH;
+        when S_PRINT_WAIT =>
+          if OUT_BUSY = '0' then
+            next_state <= S_PRINT;
+          end if;
+        when S_INPUT_REQ =>
+          next_state <= S_INPUT_WAIT;
+        when S_INPUT_WAIT =>
+          if IN_VLD = '1' then
+            next_state <= S_INPUT;
+          end if;
+        when S_INPUT =>
+          next_state <= S_FETCH;
+        when S_PRINT =>
+          next_state <= S_FETCH;
+        when S_SKIP =>
+          next_state <= S_FETCH;
+        when S_HALT =>
+          next_state <= S_HALT;
+        when others => null;
+      end case;
+    end if;
   end process;
 
   -- Output
@@ -83,13 +140,52 @@ begin
   begin
     case current_state is
       when S_RESET =>
+        pc_inc <= '0';
+        pc_dec <= '0';
+        ptr_inc <= '0';
+        ptr_dec <= '0';
         DATA_EN <= '0';
         IN_REQ <= '0';
         OUT_WE <= '0';
-      when S_PROCESS =>
-        DATA_RDWR <= '1';
-        mux_wdata <= "10";
+        MUX_ADDR <= '0';
+      when S_FETCH =>
+        MUX_ADDR <= '0';
+        DATA_RDWR <= '0';
         DATA_EN <= '1';
+        OUT_WE <= '0';
+        pc_inc <= '0';
+        pc_dec <= '0';
+        ptr_inc <= '0';
+        ptr_dec <= '0';
+      when S_DECODE =>
+        MUX_ADDR <= '1';
+      when S_INC =>
+        DATA_RDWR <= '1';
+        DATA_EN <= '1';
+        MUX_WDATA <= "10";
+        pc_inc <= '1';
+      when S_DEC =>
+        DATA_RDWR <= '1';
+        DATA_EN <= '1';
+        MUX_WDATA <= "01";
+        pc_inc <= '1';
+      when S_MOVE =>
+        ptr_inc <= '1';
+        pc_inc <= '1';
+      when S_PRINT =>
+        OUT_DATA <= DATA_RDATA;
+        OUT_WE <= '1';
+        pc_inc <= '1';
+      when S_INPUT_REQ =>
+        IN_REQ <= '1';
+      when S_INPUT =>
+        IN_REQ <= '0';
+        DATA_RDWR <= '1';
+        DATA_EN <= '1';
+        MUX_WDATA <= "00";
+        pc_inc <= '1';
+      when S_SKIP =>
+        pc_inc <= '1';
       when others => null;
     end case;
   end process;
@@ -122,30 +218,24 @@ begin
 
   p_mux_addr : process (CLK, RESET)
   begin
-    if RESET = '1' then
-    elsif rising_edge(CLK) then
-      if mux_addr = '0' then
-        DATA_ADDR <= "0" & pc;
-      else
-        DATA_ADDR <= "1" & ptr;
-      end if;
+    if mux_addr = '0' then
+      DATA_ADDR <= "0" & pc;
+    else
+      DATA_ADDR <= "1" & ptr;
     end if;
   end process;
 
   p_mux_wdata : process (CLK, RESET)
   begin
-    if RESET = '1' then
-    elsif rising_edge(CLK) then
-      case mux_wdata is
-        when "00" =>
-          DATA_WDATA <= IN_DATA;
-        when "01" =>
-          DATA_WDATA <= DATA_RDATA - 1;
-        when "10" =>
-          DATA_WDATA <= DATA_RDATA + 1;
-        when others => null;
-      end case;
-    end if;
+    case mux_wdata is
+      when "00" =>
+        DATA_WDATA <= IN_DATA;
+      when "01" =>
+        DATA_WDATA <= DATA_RDATA - 1;
+      when "10" =>
+        DATA_WDATA <= DATA_RDATA + 1;
+      when others => null;
+    end case;
   end process;
 
 end behavioral;
