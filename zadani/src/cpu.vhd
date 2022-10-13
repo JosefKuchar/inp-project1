@@ -51,7 +51,7 @@ architecture behavioral of cpu is
     S_MOVE_LEFT,
     S_PRINT, S_PRINT_WAIT,
     S_INPUT_REQ, S_INPUT_WAIT, S_INPUT,
-    S_LBRACKET_CHECK, S_RBRACKET_CHECK, S_LLBRACKET, S_LRBRACKET, S_RLBRACKET, S_RRBRACKET, S_RBRACKET_INIT,
+    S_LCHECK, S_RCHECK, S_LL, S_LR, S_RL, S_RR, S_RINIT,
     S_HALT
   );
   signal current_state : states := S_FETCH;
@@ -73,17 +73,11 @@ architecture behavioral of cpu is
   -- Data write multiplexor
   signal mux_wdata : std_logic_vector(1 downto 0);
 
-  -- Bracket counter []
-  signal cnt_bracket : signed(11 downto 0);
-  signal cnt_bracket_inc : std_logic;
-  signal cnt_bracket_dec : std_logic;
-
-  -- Parentheses counter ()
-  signal cnt_paren : signed(11 downto 0);
-  signal cnt_paren_inc : std_logic;
-  signal cnt_paren_dec : std_logic;
+  -- Bracket/brace counter - [] ()
+  signal cnt : signed(11 downto 0);
+  signal cnt_inc : std_logic;
+  signal cnt_dec : std_logic;
 begin
-
   -- State switching logic
   p_state_switch : process (CLK, RESET)
   begin
@@ -95,7 +89,7 @@ begin
   end process;
 
   -- Get next state
-  p_state_decision : process (current_state, EN, DATA_RDATA, OUT_BUSY, IN_VLD, cnt_bracket)
+  p_state_decision : process (current_state, EN, DATA_RDATA, OUT_BUSY, IN_VLD, cnt)
   begin
     next_state <= current_state;
     if EN = '1' then
@@ -105,24 +99,35 @@ begin
         when S_FETCH =>
           next_state <= S_DECODE;
         when S_DECODE =>
-          if cnt_bracket > 0 then
+          -- We are in left bracket/paren loop - ( [
+          if cnt > 0 then
             case DATA_RDATA is
               when x"5B" => -- '['
-                next_state <= S_LLBRACKET;
+                next_state <= S_LL;
               when x"5D" => -- ']'
-                next_state <= S_LRBRACKET;
-              when others => -- Other characters (comments)
+                next_state <= S_LR;
+              when x"28" => -- '('
+                next_state <= S_LL;
+              when x"29" => -- ')'
+                next_state <= S_LR;
+              when others => -- Other characters
                 next_state <= S_SKIP;
             end case;
-          elsif cnt_bracket < 0 then
+            -- We are in right bracket/parent loop - ) ]
+          elsif cnt < 0 then
             case DATA_RDATA is
               when x"5B" => -- '['
-                next_state <= S_RLBRACKET;
+                next_state <= S_RL;
               when x"5D" => -- ']'
-                next_state <= S_RRBRACKET;
-              when others => -- Other characters (comments)
+                next_state <= S_RR;
+              when x"28" => -- '('
+                next_state <= S_RL;
+              when x"29" => -- ')'
+                next_state <= S_RR;
+              when others => -- Other characters
                 next_state <= S_PREV;
             end case;
+            -- Normal decoding
           else
             case DATA_RDATA is
               when x"2B" => -- '+'
@@ -138,13 +143,13 @@ begin
               when x"2C" => -- ','
                 next_state <= S_INPUT_REQ;
               when x"5B" => -- '['
-                next_state <= S_LBRACKET_CHECK;
+                next_state <= S_LCHECK;
               when x"5D" => -- ']'
-                next_state <= S_RBRACKET_CHECK;
+                next_state <= S_RCHECK;
               when x"28" => -- '('
-                null;
+                next_state <= S_SKIP;
               when x"29" => -- ')'
-                null;
+                next_state <= S_RCHECK;
               when x"00" => -- '\0'
                 next_state <= S_HALT;
               when others => -- Other characters (comments)
@@ -161,26 +166,26 @@ begin
           if IN_VLD = '1' then
             next_state <= S_INPUT;
           end if;
-        when S_LBRACKET_CHECK =>
+        when S_LCHECK =>
           if DATA_RDATA = x"00" then
-            next_state <= S_LLBRACKET;
+            next_state <= S_LL;
           else
             next_state <= S_SKIP;
           end if;
-        when S_RBRACKET_CHECK =>
+        when S_RCHECK =>
           if DATA_RDATA = x"00" then
             next_state <= S_SKIP;
           else
-            next_state <= S_RBRACKET_INIT;
+            next_state <= S_RINIT;
           end if;
-        when S_RLBRACKET =>
-          if cnt_bracket =- 1 then
+        when S_RL =>
+          if cnt =- 1 then -- -1 because we will add 1 in next cycle
             next_state <= S_SKIP;
           else
             next_state <= S_PREV;
           end if;
-        when S_RRBRACKET =>
-          if cnt_bracket = 1 then
+        when S_RR =>
+          if cnt = 1 then -- 1 because wwe will remove 1 in next cycle
             next_state <= S_SKIP;
           else
             next_state <= S_PREV;
@@ -202,8 +207,8 @@ begin
         pc_dec <= '0';
         ptr_inc <= '0';
         ptr_dec <= '0';
-        cnt_bracket_inc <= '0';
-        cnt_bracket_dec <= '0';
+        cnt_inc <= '0';
+        cnt_dec <= '0';
         DATA_EN <= '0';
         IN_REQ <= '0';
         OUT_WE <= '0';
@@ -218,8 +223,8 @@ begin
         pc_dec <= '0';
         ptr_inc <= '0';
         ptr_dec <= '0';
-        cnt_bracket_inc <= '0';
-        cnt_bracket_dec <= '0';
+        cnt_inc <= '0';
+        cnt_dec <= '0';
         -- Decode current instruction
       when S_DECODE =>
         MUX_ADDR <= '1';
@@ -258,27 +263,33 @@ begin
         DATA_EN <= '1';
         MUX_WDATA <= "00";
         pc_inc <= '1';
-      when S_LLBRACKET =>
-        cnt_bracket_inc <= '1';
+        -- Left bracket/brace inside left bracket/brace loop
+      when S_LL =>
+        cnt_inc <= '1';
         pc_inc <= '1';
-      when S_LRBRACKET =>
-        cnt_bracket_dec <= '1';
+        -- Right bracket/brace inside left bracket/brace loop
+      when S_LR =>
+        cnt_dec <= '1';
         pc_inc <= '1';
-      when S_RLBRACKET =>
-        cnt_bracket_inc <= '1';
-      when S_RRBRACKET =>
-        cnt_bracket_dec <= '1';
-      when S_RBRACKET_INIT =>
+        -- Left bracket/brace inside right bracket/brace loop
+      when S_RL =>
+        cnt_inc <= '1';
+        -- Right bracket/brace inside left bracket/brace loop
+      when S_RR =>
+        cnt_dec <= '1';
+        -- Initialize counter when going back in loop
+      when S_RINIT =>
         pc_dec <= '1';
-        cnt_bracket_dec <= '1';
+        cnt_dec <= '1';
         -- Other characters (comments)
       when S_SKIP =>
-        cnt_bracket_inc <= '0';
-        cnt_bracket_dec <= '0';
+        cnt_inc <= '0';
+        cnt_dec <= '0';
         pc_inc <= '1';
+        -- Go back in loop
       when S_PREV =>
-        cnt_bracket_inc <= '0';
-        cnt_bracket_dec <= '0';
+        cnt_inc <= '0';
+        cnt_dec <= '0';
         pc_dec <= '1';
       when others => null;
     end case;
@@ -342,29 +353,15 @@ begin
   end process;
 
   -- Bracket counter []
-  p_cnt_bracket : process (CLK, RESET)
+  p_cnt : process (CLK, RESET)
   begin
     if RESET = '1' then
-      cnt_bracket <= x"000";
+      cnt <= x"000";
     elsif rising_edge(CLK) then
-      if cnt_bracket_inc = '1' then
-        cnt_bracket <= cnt_bracket + 1;
-      elsif cnt_bracket_dec = '1' then
-        cnt_bracket <= cnt_bracket - 1;
-      end if;
-    end if;
-  end process;
-
-  -- Parentheses counter ()
-  p_cnt_paren : process (CLK, RESET)
-  begin
-    if RESET = '1' then
-      cnt_paren <= x"000";
-    elsif rising_edge(CLK) then
-      if cnt_paren_inc = '1' then
-        cnt_paren <= cnt_paren + 1;
-      elsif cnt_paren_dec = '1' then
-        cnt_paren <= cnt_paren - 1;
+      if cnt_inc = '1' then
+        cnt <= cnt + 1;
+      elsif cnt_dec = '1' then
+        cnt <= cnt - 1;
       end if;
     end if;
   end process;
