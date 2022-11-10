@@ -330,7 +330,7 @@ begin
   -- Memory address multiplexor
   -- 0 = Program counter
   -- 1 = Data pointer
-  p_mux_addr : process (CLK, RESET)
+  p_mux_addr : process (mux_addr, pc, ptr)
   begin
     if mux_addr = '0' then
       DATA_ADDR <= "0" & pc;
@@ -343,7 +343,7 @@ begin
   -- 00 = Data from keyboard
   -- 01 = Current cell value - 1
   -- 10 = Current cell value + 1
-  p_mux_wdata : process (CLK, RESET)
+  p_mux_wdata : process (mux_wdata, IN_DATA, DATA_RDATA)
   begin
     case mux_wdata is
       when "00" =>
